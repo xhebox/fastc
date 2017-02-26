@@ -58,7 +58,7 @@ void _write_vlq() {
 	// write vlq information
 	int m;
 	char buf[10];
-	if ((m = to_vlq(len, buf)))
+	if ( len != 0 && (m = to_vlq(len, buf)))
 		_write(buf, m, open_vql.result);
 
 	len = 0;
@@ -203,14 +203,14 @@ int main(int argc, char** argv) {
 		ERR("opening in: %s\n", uv_strerror(result));
 
 	// open output
-	if (output != 0) result = uv_fs_open(loop, &open_output, output, O_WRONLY|O_CREAT, 0644, NULL);
+	if (output != 0) result = uv_fs_open(loop, &open_output, output, O_RDWR|O_CREAT, 0644, NULL);
 	else open_output.result = 1;
 
 	if (result < 0)
 		ERR("opening out: %s\n", uv_strerror(result));
 
 	// open vlqput
-	if (vlqput != 0) result = uv_fs_open(loop, &open_vql, vlqput, O_WRONLY|O_CREAT, 0644, NULL);
+	if (vlqput != 0) result = uv_fs_open(loop, &open_vql, vlqput, O_RDWR|O_CREAT, 0644, NULL);
 	else open_vql.result = 2;
 
 	if (result < 0)
