@@ -94,23 +94,39 @@ void on_read(uv_fs_t *req) {
 		char outbuf[256];
 		for(int m = 0; m<iov_input.len; m++) {
 			switch(iov_input.base[m]) {
+			case 'a': 
 			case 'A': 
 				outbuf[w] |= (0x0)<<(6-n*2);
 				len++;
 				break;
+			case 'u':
+			case 't':
 			case 'U':
 			case 'T':
 				outbuf[w] |= (0x1)<<(6-n*2);
 				len++;
 				break;
+			case 'g':
 			case 'G':
 				outbuf[w] |= (0x2)<<(6-n*2);
 				len++;
 				break;
+			case 'c':
 			case 'C':
 				outbuf[w] |= (0x3)<<(6-n*2);
 				len++;
 				break;
+			case 'r':
+			case 'y':
+			case 'k':
+			case 'm':
+			case 's':
+			case 'w':
+			case 'b':
+			case 'd':
+			case 'h':
+			case 'v':
+			case 'n':
 			case 'R':
 			case 'Y':
 			case 'K':
