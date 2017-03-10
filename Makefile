@@ -6,7 +6,7 @@ VERSION ?= $(MAJVER).$(SUBVER)
 
 CFLAGS = -O3 -std=c11 -Wall
 
-all:
+all: clean
 	$(CC) $(CFLAGS) -fPIC -c parser.c
 	$(CC) -shared -Wl,-soname,libfcparser.so.0 -o libfcparser.so.0.1 parser.o
 	ln -s libfcparser.so.$(VERSION) libfcparser.so.$(MAJVER)
@@ -17,10 +17,10 @@ install: all
 	cp -f parser.h $(PREFIX)/include/fcparser.h
 
 uninstall:
-	rm -f $(PREFIX)/lib/libfcpaser.so.*
+	rm -f $(PREFIX)/lib/libfcpaser.so*
 	rm -f $(PREFIX)/include/fcparser.h
 
-test:
+test: all
 	$(CC) $(CFLAGS) test.c -L. -lfcparser -o test
 	LD_LIBRARY_PATH=. ./test
 

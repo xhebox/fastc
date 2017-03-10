@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include "parser.h"
 
+#define MODE_ATCG 1
+#define MODE_DEGE 2
+#define SYM_INT 0xFF
+
 char codes[128] = {
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	0xB, //-
@@ -151,13 +155,7 @@ int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 						*out = 0x3C;
 					}
 				}
-			} else 	if ( mode == 0 ) {
-				mode = MODE_ATCG;
-				*out++ = MODE_ATCG;
-
-				*out |= codes[*in] << (8-n*2);
-				n++;
-			} else {
+			} else if ( mode == MODE_DEGE ) {
 				// we met CCCC
 				if ( *in == 'C' && *(in+1) == 'C' && *(in+2) == 'C' && *(in+3) == 'C' ) {
 					in += 3;
@@ -168,9 +166,15 @@ int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 					*out = ((*out>>4)+3)<<4 | (*out & 0xF);
 					break;
 				}
-				out++;
+
 				mode = MODE_ATCG;
-				*out++ = SYM_INT;
+				*++out = SYM_INT;
+				*++out |= codes[*in] << (8-n*2);
+				n++;
+			} else {
+				mode = MODE_ATCG;
+				*out++ = MODE_ATCG;
+
 				*out |= codes[*in] << (8-n*2);
 				n++;
 			}
@@ -206,16 +210,16 @@ int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 				*out++ = (n == 1) ? 4 : n - 1;
 				n = 1;
 				*out = codes[*in];
-			} else if ( mode == 0 ) {
-				mode = MODE_DEGE;
-				*out++ = MODE_DEGE;
-				*out = codes[*in];
-			} else {
+			} else if ( mode == MODE_DEGE ) {
 				if ( (*out >> 4) == 0xF || (*out & 0xF) != codes[*in] ) {
 					*++out = codes[*in];
 					break;
 				}
 				*out = ((*out>>4)+1)<<4 | (*out & 0xF);
+			} else {
+				mode = MODE_DEGE;
+				*out++ = MODE_DEGE;
+				*out = codes[*in];
 			}
 			break;
 		case '\n':
@@ -226,6 +230,8 @@ int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 			return -1;
 		}
 	}
+
+	// write down the number of nucleic in the last array
 	if ( mode == MODE_ATCG && n != 1 ) {
 		*out++ = SYM_INT;
 		*out = n - 1;
@@ -241,8 +247,9 @@ int fc_decode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 	for (uint8_t *dst = in+maxlen-1; in < dst; in++) {
 		if ( *in == SYM_INT ) {
 			if ( mode == MODE_ATCG ) {
-				out -= (4 - *(in+1));
-				in++;
+				// back if it's not 4 nucleic, but 3, 2, or 1
+				// and skip the control code
+				out -= (4 - *++in);
 				mode = MODE_DEGE;
 			} else {
 				mode = MODE_ATCG;
