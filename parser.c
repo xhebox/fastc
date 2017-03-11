@@ -3,7 +3,6 @@
 
 #define MODE_ATCG 1
 #define MODE_DEGE 2
-#define SYM_INT 0xFF
 
 char codes[128] = {
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -124,12 +123,19 @@ char atcg[256][4] = {
 { 'C', 'C', 'C', 'A' }, { 'C', 'C', 'C', 'T' }, { 'C', 'C', 'C', 'G' }, { 'C', 'C', 'C', 'C' }
 };
 
-int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
-{
-	uint8_t mode = 0;
+static inline uint64_t encode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint8_t *dst) {
+	uint8_t *start = out;
 	int n = 1;
+	if ( *info ) {
+		if ( *mode == MODE_ATCG ) {
+			*out = (*info)>>24;
+			n = ((*info)>>18) & 0xFF;
+		} else if ( *mode == MODE_DEGE ) {
+			*out = (*info)>>24;
+		}
+	}
 
-	for (uint8_t *dst = in+maxlen; in < dst; in++) {
+	for (; in < dst; in++) {
 		switch (*in) {
 		case 'a':
 		case 'A':
@@ -141,21 +147,21 @@ int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 		case 'G':
 		case 'c':
 		case 'C':
-			if ( mode == MODE_ATCG ) {
+			if ( *mode == MODE_ATCG ) {
 				*out |= codes[*in] << (8-n*2);
 				if ( 4 == n++ ) {
 					n = 1;
 					if ( *out != 0xFF ) {
 						out++;
 					} else {
-						mode = MODE_DEGE;
+						*mode = MODE_DEGE;
 						// SYM_INT == "CCCC" == 0xFF
 						*out++ = SYM_INT;
 						*out++ = 4;
 						*out = 0x3C;
 					}
 				}
-			} else if ( mode == MODE_DEGE ) {
+			} else if ( *mode == MODE_DEGE ) {
 				// we met CCCC
 				if ( *in == 'C' && *(in+1) == 'C' && *(in+2) == 'C' && *(in+3) == 'C' ) {
 					in += 3;
@@ -167,12 +173,12 @@ int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 					break;
 				}
 
-				mode = MODE_ATCG;
+				*mode = MODE_ATCG;
 				*++out = SYM_INT;
 				*++out |= codes[*in] << (8-n*2);
 				n++;
 			} else {
-				mode = MODE_ATCG;
+				*mode = MODE_ATCG;
 				*out++ = MODE_ATCG;
 
 				*out |= codes[*in] << (8-n*2);
@@ -202,70 +208,129 @@ int fc_encode(uint8_t *in, uint8_t *out, uint64_t maxlen)
 		case 'V':
 		case 'N':
 		case '-':
-			if ( mode == MODE_ATCG ) {
-				mode = MODE_DEGE;
+			if ( *mode == MODE_ATCG ) {
+				*mode = MODE_DEGE;
 				if ( n != 1 ) out++;
 
 				*out++ = SYM_INT;
 				*out++ = (n == 1) ? 4 : n - 1;
 				n = 1;
 				*out = codes[*in];
-			} else if ( mode == MODE_DEGE ) {
+			} else if ( *mode == MODE_DEGE ) {
 				if ( (*out >> 4) == 0xF || (*out & 0xF) != codes[*in] ) {
 					*++out = codes[*in];
 					break;
 				}
 				*out = ((*out>>4)+1)<<4 | (*out & 0xF);
 			} else {
-				mode = MODE_DEGE;
+				*mode = MODE_DEGE;
 				*out++ = MODE_DEGE;
 				*out = codes[*in];
 			}
 			break;
-		case '\n':
-		case ' ':
-			break;
 		default:
-			fprintf(stderr, "\33[31mencoding: unknown character - %c, %x\n\33[39m", *in, *in);
-			return -1;
+			fprintf(stderr, "\33[31mencoding:\33[39m unknown character - %c, %x\n", *in, *in);
+			return 0;
 		}
 	}
 
 	// write down the number of nucleic in the last array
-	if ( mode == MODE_ATCG && n != 1 ) {
-		*out++ = SYM_INT;
-		*out = n - 1;
+	if ( *mode == MODE_ATCG ) {
+		if ( n != 1 ) {
+			*info = (*out)<<24;
+			*info |= (n - 1)<<16;
+		} else *info = 0;
+	} else if ( *mode == MODE_DEGE ) {
+		*info = (*out)<<24;
 	}
 
-	return 0;
+	return out-start;
+}
+
+static inline uint64_t encode_close(uint8_t *mode, uint32_t *info, uint8_t *out) {
+	uint8_t *start = out;
+	if ( *info ) {
+		if ( *mode == MODE_ATCG ) {
+			*out++ = (*info)>>24;
+			uint8_t n = ((*info)>>16) & 0xFF;
+			if ( n != 1 ) {
+				*out++ = SYM_INT;
+				*out++ = n;
+			}
+		} else if ( *mode == MODE_DEGE ) {
+			*out++ = (*info)>>24;
+		}
+	}
+	return out-start;
+}
+
+uint64_t fc_estream(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint64_t count) {
+	return encode(mode, info, in, out, in+count);
+}
+
+uint64_t fc_estream_close(uint8_t *mode, uint32_t *info, uint8_t *out) {
+	return encode_close(mode, info, out);
+}
+
+uint64_t fc_encode(uint8_t *in, uint8_t *out, uint64_t count)
+{
+	uint8_t mode = 0, *modep = &mode;
+	uint32_t info = 0, *infop = &info;
+	uint64_t len = encode(modep, infop, in, out, in+count);
+	return len + encode_close(modep, infop, out+len);
 }
  
-int fc_decode(uint8_t *in, uint8_t *out, uint64_t maxlen)
-{
-	uint8_t mode = *in++;
+static inline uint64_t decode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint8_t *dst) {
+	uint8_t *start = out;
+	if (! *mode ) {
+		*mode = *in++;
+	}
+	if ( *info ) {
+		goto read;
+	}
 
-	for (uint8_t *dst = in+maxlen-1; in < dst; in++) {
+	for (; in < dst; in++) {
 		if ( *in == SYM_INT ) {
-			if ( mode == MODE_ATCG ) {
+			if ( *mode == MODE_ATCG ) {
+				// we met the limit
+				if ( in+1 == dst ) {
+					*info = 1;
+					continue;
+				} else in++;
+
 				// back if it's not 4 nucleic, but 3, 2, or 1
 				// and skip the control code
-				out -= (4 - *++in);
-				mode = MODE_DEGE;
+read:
+				for(int a=0, b=4-*in; a < b; a++)
+					*--out = 0;
+				*mode = MODE_DEGE;
+				*info = 0;
 			} else {
-				mode = MODE_ATCG;
+				*mode = MODE_ATCG;
 			}
 			continue;
-		} else if ( mode == MODE_ATCG ) {
+		} else if ( *mode == MODE_ATCG ) {
 			for (int a=0; a < 4; a++)
 				*out++ = atcg[*in][a];
-		} else if ( mode == MODE_DEGE ) {
+		} else if ( *mode == MODE_DEGE ) {
 			uint8_t code = (*in) & 0xF;
 			for (int t=0, c=(*in)>>4; t <= c; t++)
 				*out++ = dege[code];
 		} else {
-			fprintf(stderr, "\33[31mdecoding: unknown mode - %d\n\33[39m", mode);
-			return -1;
+			fprintf(stderr, "\33[31mdecoding\33[39m: unknown mode - %d\n", *mode);
+			return 0;
 		}
 	}
-	return 0;
+	return out-start;
+}
+
+uint64_t fc_dstream(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint64_t count) {
+	return decode(mode, info, in, out, in+count);
+}
+
+uint64_t fc_decode(uint8_t *in, uint8_t *out, uint64_t count)
+{
+	uint8_t mode = 0;
+	uint32_t info = 0;
+	return decode(&mode, &info, in, out, in+count);
 }
