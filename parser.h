@@ -24,11 +24,11 @@ extern uint64_t fc_encode(uint8_t*, uint8_t*, uint64_t);
 // #return len of output
 // 0 for mode, info for the first time
 // and then put previous retval as input over and over again
-extern uint64_t fc_estream(uint8_t*, uint32_t*, uint8_t*, uint8_t*, uint64_t);
+extern uint64_t fc_estream(uint8_t*, uint64_t*, uint8_t*, uint8_t*, uint64_t);
 // #para ( mode, info, output array)
 // #return len of output
 // put previous retval as input, and close the stream
-extern uint64_t fc_estream_close(uint8_t*, uint32_t*, uint8_t*);
+extern uint64_t fc_estream_close(uint8_t*, uint64_t*, uint8_t*);
 
 // #para ( input array, output array, input-count)
 // and for decode, there's no good way to determine buffer
@@ -36,7 +36,7 @@ extern uint64_t fc_estream_close(uint8_t*, uint32_t*, uint8_t*);
 // #return len of output
 extern uint64_t fc_decode(uint8_t*, uint8_t*, uint64_t);
 // same as fc_estream*
-extern uint64_t fc_dstream(uint8_t*, uint32_t*, uint8_t*, uint8_t*, uint64_t);
+extern uint64_t fc_dstream(uint8_t*, uint64_t*, uint8_t*, uint8_t*, uint64_t);
 
 #ifdef __cplusplus
 }

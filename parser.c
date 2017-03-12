@@ -123,13 +123,16 @@ char atcg[256][4] = {
 { 'C', 'C', 'C', 'A' }, { 'C', 'C', 'C', 'T' }, { 'C', 'C', 'C', 'G' }, { 'C', 'C', 'C', 'C' }
 };
 
-static inline uint64_t encode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint8_t *dst) {
+static inline uint64_t encode(uint8_t *mode, uint64_t *info, uint8_t *in, uint8_t *out, uint8_t *dst) {
 	uint8_t *start = out;
-	int n = 1;
+	int n = 0;
+	uint8_t flag = 0;
+
 	if ( *info ) {
 		if ( *mode == MODE_ATCG ) {
 			*out = (*info)>>24;
-			n = ((*info)>>18) & 0xFF;
+			n = ((*info)>>16) & 0xFF;
+			flag = ((*info)>>8) & 0xFF;
 		} else if ( *mode == MODE_DEGE ) {
 			*out = (*info)>>24;
 		}
@@ -148,40 +151,40 @@ static inline uint64_t encode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_
 		case 'c':
 		case 'C':
 			if ( *mode == MODE_ATCG ) {
-				*out |= codes[*in] << (8-n*2);
-				if ( 4 == n++ ) {
-					n = 1;
+				*out |= codes[*in] << (6-n*2);
+				n++;
+				if ( 4 == n ) {
+					n = 0;
 					if ( *out != 0xFF ) {
-						out++;
+						if ( flag != MODE_DEGE ) {
+							out++;
+						} else {
+							*(out+1) = *out;
+							*out = SYM_INT;
+							out += 2;
+						}
 					} else {
 						*mode = MODE_DEGE;
 						// SYM_INT == "CCCC" == 0xFF
-						*out++ = SYM_INT;
-						*out++ = 4;
+						if ( flag != MODE_DEGE ) {
+							*out++ = SYM_INT;
+							*out++ = 4;
+						} else {
+							flag = 0;
+						}
 						*out = 0x3C;
 					}
 				}
 			} else if ( *mode == MODE_DEGE ) {
-				// we met CCCC
-				if ( *in == 'C' && *(in+1) == 'C' && *(in+2) == 'C' && *(in+3) == 'C' ) {
-					in += 3;
-					if ( (*out >> 4) == 0xF || (*out & 0xF) != codes[*in] ) {
-						*++out = 0x3C;
-						break;
-					}
-					*out = ((*out>>4)+3)<<4 | (*out & 0xF);
-					break;
-				}
-
+				flag = MODE_DEGE;
 				*mode = MODE_ATCG;
-				*++out = SYM_INT;
-				*++out |= codes[*in] << (8-n*2);
+				*++out |= codes[*in] << (6-n*2);
 				n++;
 			} else {
 				*mode = MODE_ATCG;
 				*out++ = MODE_ATCG;
 
-				*out |= codes[*in] << (8-n*2);
+				*out |= codes[*in] << (6-n*2);
 				n++;
 			}
 			break;
@@ -210,11 +213,11 @@ static inline uint64_t encode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_
 		case '-':
 			if ( *mode == MODE_ATCG ) {
 				*mode = MODE_DEGE;
-				if ( n != 1 ) out++;
+				if ( n != 0 ) out++;
 
 				*out++ = SYM_INT;
-				*out++ = (n == 1) ? 4 : n - 1;
-				n = 1;
+				*out++ = ( n == 0 ) ? 4 : n;
+				n = 0;
 				*out = codes[*in];
 			} else if ( *mode == MODE_DEGE ) {
 				if ( (*out >> 4) == 0xF || (*out & 0xF) != codes[*in] ) {
@@ -236,9 +239,10 @@ static inline uint64_t encode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_
 
 	// write down the number of nucleic in the last array
 	if ( *mode == MODE_ATCG ) {
-		if ( n != 1 ) {
+		if ( n != 0 ) {
 			*info = (*out)<<24;
-			*info |= (n - 1)<<16;
+			*info |= n<<16;
+			*info |= flag<<8;
 		} else *info = 0;
 	} else if ( *mode == MODE_DEGE ) {
 		*info = (*out)<<24;
@@ -247,13 +251,17 @@ static inline uint64_t encode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_
 	return out-start;
 }
 
-static inline uint64_t encode_close(uint8_t *mode, uint32_t *info, uint8_t *out) {
+static inline uint64_t encode_close(uint8_t *mode, uint64_t *info, uint8_t *out) {
 	uint8_t *start = out;
 	if ( *info ) {
 		if ( *mode == MODE_ATCG ) {
+			uint8_t flag = ((*info)>>8) & 0xFF;
+			if ( flag == MODE_DEGE )
+				*out++ = SYM_INT;
+
 			*out++ = (*info)>>24;
 			uint8_t n = ((*info)>>16) & 0xFF;
-			if ( n != 1 ) {
+			if ( n != 0 ) {
 				*out++ = SYM_INT;
 				*out++ = n;
 			}
@@ -264,28 +272,28 @@ static inline uint64_t encode_close(uint8_t *mode, uint32_t *info, uint8_t *out)
 	return out-start;
 }
 
-uint64_t fc_estream(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint64_t count) {
+uint64_t fc_estream(uint8_t *mode, uint64_t *info, uint8_t *in, uint8_t *out, uint64_t count) {
 	return encode(mode, info, in, out, in+count);
 }
 
-uint64_t fc_estream_close(uint8_t *mode, uint32_t *info, uint8_t *out) {
+uint64_t fc_estream_close(uint8_t *mode, uint64_t *info, uint8_t *out) {
 	return encode_close(mode, info, out);
 }
 
 uint64_t fc_encode(uint8_t *in, uint8_t *out, uint64_t count)
 {
 	uint8_t mode = 0, *modep = &mode;
-	uint32_t info = 0, *infop = &info;
+	uint64_t info = 0, *infop = &info;
 	uint64_t len = encode(modep, infop, in, out, in+count);
 	return len + encode_close(modep, infop, out+len);
 }
  
-static inline uint64_t decode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint8_t *dst) {
+static inline uint64_t decode(uint8_t *mode, uint64_t *info, uint8_t *in, uint8_t *out, uint8_t *dst) {
 	uint8_t *start = out;
 	if (! *mode ) {
 		*mode = *in++;
 	}
-	if ( *info ) {
+	if ( (*info & 0xFFFFFFFF00000000) == 0xFFFFFFFF00000000 ) {
 		goto read;
 	}
 
@@ -294,13 +302,17 @@ static inline uint64_t decode(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_
 			if ( *mode == MODE_ATCG ) {
 				// we met the limit
 				if ( in+1 == dst ) {
-					*info = 1;
+					*info |= 0xFFFFFFFF00000000;
 					continue;
 				} else in++;
 
 				// back if it's not 4 nucleic, but 3, 2, or 1
 				// and skip the control code
 read:
+				if ( *info ) {
+					for (int a=0; a < 4; a++)
+						*out++ = ((*info) >> (24-a*8));
+				}
 				for(int a=0, b=4-*in; a < b; a++)
 					*--out = 0;
 				*mode = MODE_DEGE;
@@ -310,8 +322,13 @@ read:
 			}
 			continue;
 		} else if ( *mode == MODE_ATCG ) {
+			if ( *info ) {
+				for (int a=0; a < 4; a++)
+						*out++ = ((*info) >> (24-a*8));
+				*info = 0;
+			}
 			for (int a=0; a < 4; a++)
-				*out++ = atcg[*in][a];
+				*info |= (atcg[*in][a])<<(24-a*8);
 		} else if ( *mode == MODE_DEGE ) {
 			uint8_t code = (*in) & 0xF;
 			for (int t=0, c=(*in)>>4; t <= c; t++)
@@ -324,13 +341,13 @@ read:
 	return out-start;
 }
 
-uint64_t fc_dstream(uint8_t *mode, uint32_t *info, uint8_t *in, uint8_t *out, uint64_t count) {
+uint64_t fc_dstream(uint8_t *mode, uint64_t *info, uint8_t *in, uint8_t *out, uint64_t count) {
 	return decode(mode, info, in, out, in+count);
 }
 
 uint64_t fc_decode(uint8_t *in, uint8_t *out, uint64_t count)
 {
 	uint8_t mode = 0;
-	uint32_t info = 0;
+	uint64_t info = 0;
 	return decode(&mode, &info, in, out, in+count);
 }

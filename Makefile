@@ -5,10 +5,10 @@ MAJVER ?= 0
 SUBVER ?= 1
 VERSION ?= $(MAJVER).$(SUBVER)
 
-CFLAGS = -O3 -std=c11 -Wall
+CFLAGS = -O2 -std=c11 -Wall
 
 all: lib
-	$(CC) $(CFLAGS) main.c -o fcparser -luv -L. -lfcparser
+	$(CC) $(CFLAGS) main.c -o fcparser -L. -lfcparser
 
 lib: clean
 	$(CC) $(CFLAGS) -fPIC -c parser.c
